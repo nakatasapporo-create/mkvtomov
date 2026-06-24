@@ -1,163 +1,198 @@
-<!DOCTYPE html>
-
-<html lang="ja">
+<!DOCTYPE html><html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>MP4→MOV Converter</title>
-
-<script>
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('./sw.js')
-    .then(() => console.log('SW registered'))
-    .catch(console.error);
-}
-</script>
-
-<style>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MP4 → MOV Converter</title><script src="./coi-serviceworker.js"></script><style>
 body{
-  font-family:sans-serif;
-  max-width:800px;
-  margin:40px auto;
-  padding:20px;
+    font-family:sans-serif;
+    max-width:800px;
+    margin:40px auto;
+    padding:20px;
+    background:#f5f5f5;
 }
-.card{
-  border:1px solid #ddd;
-  border-radius:12px;
-  padding:20px;
+
+.container{
+    background:white;
+    padding:30px;
+    border-radius:15px;
+    box-shadow:0 2px 10px rgba(0,0,0,0.1);
 }
+
+h1{
+    text-align:center;
+}
+
+input[type=file]{
+    width:100%;
+    margin:20px 0;
+}
+
 button{
-  padding:10px 20px;
-  cursor:pointer;
+    width:100%;
+    padding:15px;
+    border:none;
+    border-radius:10px;
+    background:#1976d2;
+    color:white;
+    font-size:16px;
+    cursor:pointer;
 }
-#progress{
-  width:100%;
-  height:24px;
+
+button:disabled{
+    background:#999;
 }
-</style>
 
-</head>
-<body>
+progress{
+    width:100%;
+    height:25px;
+    margin-top:20px;
+}
 
-<div class="card">
-<h1>MP4 → MOV Converter</h1>
+#status{
+    margin-top:20px;
+    text-align:center;
+}
 
-<input type="file" id="file" accept=".mp4,video/mp4">
+#download{
+    margin-top:20px;
+    text-align:center;
+}
 
-<br><br>
+a{
+    display:inline-block;
+    padding:12px 20px;
+    background:#2e7d32;
+    color:white;
+    text-decoration:none;
+    border-radius:10px;
+}
+</style></head><body><div class="container"><h1>MP4 → MOV Converter</h1><p>
+MP4ファイルを無劣化でMOV形式へ変換します。<br>
+処理はすべてブラウザ内で行われます。
+</p><input type="file" id="fileInput" accept=".mp4,video/mp4"><button id="convertButton" disabled>
+FFmpeg 初期化中...
+</button><progress id="progress" value="0" max="100"></progress>
 
-<button id="convert">変換開始</button>
-
-<br><br>
-
-<progress id="progress" value="0" max="100"></progress>
-
-<p id="status">初期化中...</p>
-
-<div id="download"></div>
-</div>
-
-<script type="module">
+<div id="status">FFmpegを読み込み中...</div><div id="download"></div></div><script type="module">
 
 import { FFmpeg } from "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/+esm";
-import { fetchFile,toBlobURL } from "https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/+esm";
+import { fetchFile, toBlobURL } from "https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/+esm";
 
 const status = document.getElementById("status");
-const progress = document.getElementById("progress");
-const convertBtn = document.getElementById("convert");
+const progressBar = document.getElementById("progress");
+const button = document.getElementById("convertButton");
 
-const ffmpeg = new FFmpeg();
+let ffmpeg;
 
-ffmpeg.on("progress", ({progress:p})=>{
-  progress.value = Math.round(p*100);
-});
+async function initializeFFmpeg(){
 
-async function init(){
+    try{
 
-  try{
+        const baseURL =
+            "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm";
 
-    const baseURL =
-      "https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.12.6/dist/esm";
+        const workerURL = await toBlobURL(
+            "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/esm/worker.js",
+            "text/javascript"
+        );
 
-    await ffmpeg.load({
-      coreURL: await toBlobURL(
-        `${baseURL}/ffmpeg-core.js`,
-        "text/javascript"
-      ),
-      wasmURL: await toBlobURL(
-        `${baseURL}/ffmpeg-core.wasm`,
-        "application/wasm"
-      )
-    });
+        ffmpeg = new FFmpeg({
+            workerURL
+        });
 
-    status.textContent = "準備完了";
+        ffmpeg.on("progress", ({progress})=>{
+            progressBar.value = Math.round(progress * 100);
+        });
 
-  }catch(err){
-    console.error(err);
-    status.textContent =
-      "FFmpeg初期化失敗: " + err.message;
-  }
+        await ffmpeg.load({
+            coreURL: await toBlobURL(
+                `${baseURL}/ffmpeg-core.js`,
+                "text/javascript"
+            ),
+            wasmURL: await toBlobURL(
+                `${baseURL}/ffmpeg-core.wasm`,
+                "application/wasm"
+            )
+        });
+
+        status.textContent = "準備完了";
+        button.disabled = false;
+        button.textContent = "MOVへ変換";
+
+    }catch(error){
+
+        console.error(error);
+
+        status.textContent =
+            "FFmpeg初期化失敗: " + error.message;
+
+        button.textContent = "初期化失敗";
+    }
 }
 
-init();
+initializeFFmpeg();
 
-convertBtn.onclick = async ()=>{
+button.addEventListener("click", async ()=>{
 
-  const fileInput =
-    document.getElementById("file");
+    const fileInput = document.getElementById("fileInput");
 
-  if(!fileInput.files.length){
-    alert("MP4を選択してください");
-    return;
-  }
+    if(fileInput.files.length === 0){
+        alert("MP4ファイルを選択してください。");
+        return;
+    }
 
-  const file = fileInput.files[0];
+    const file = fileInput.files[0];
 
-  try{
+    try{
 
-    status.textContent = "変換中...";
+        button.disabled = true;
+        status.textContent = "変換中...";
 
-    await ffmpeg.writeFile(
-      "input.mp4",
-      await fetchFile(file)
-    );
+        await ffmpeg.writeFile(
+            "input.mp4",
+            await fetchFile(file)
+        );
 
-    await ffmpeg.exec([
-      "-i",
-      "input.mp4",
-      "-c",
-      "copy",
-      "output.mov"
-    ]);
+        await ffmpeg.exec([
+            "-i",
+            "input.mp4",
+            "-c",
+            "copy",
+            "output.mov"
+        ]);
 
-    const data =
-      await ffmpeg.readFile("output.mov");
+        const data =
+            await ffmpeg.readFile("output.mov");
 
-    const blob = new Blob(
-      [data.buffer],
-      {type:"video/quicktime"}
-    );
+        const blob = new Blob(
+            [data.buffer],
+            {
+                type:"video/quicktime"
+            }
+        );
 
-    const url =
-      URL.createObjectURL(blob);
+        const url =
+            URL.createObjectURL(blob);
 
-    document.getElementById("download").innerHTML =
-      `<a href="${url}" download="output.mov">
-      MOVをダウンロード
-      </a>`;
+        document.getElementById("download").innerHTML =
+            `<a href="${url}" download="output.mov">
+                MOVファイルをダウンロード
+            </a>`;
 
-    status.textContent = "完了";
+        status.textContent = "変換完了";
+        button.disabled = false;
 
-  }catch(err){
+    }catch(error){
 
-    console.error(err);
+        console.error(error);
 
-    status.textContent =
-      "変換エラー: " + err.message;
-  }
-};
+        status.textContent =
+            "変換失敗: " + error.message;
 
-</script>
+        button.disabled = false;
+    }
 
-</body>
+});
+
+</script></body>
 </html>
